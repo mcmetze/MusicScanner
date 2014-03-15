@@ -51,10 +51,11 @@ public class ProcessTask extends AsyncTask<Double, Integer, Bitmap>
     	mMatToProcess.get(0, 0, mPixels);
     	
         mStaffInfo = new MusicStaffInfo(mPixels, mImageWidth, mImageHeight);
-        mStaffInfo.processImage();
-        removeStaffLines();
+        //mStaffInfo.processImage();
+        //removeStaffLines();
         
-        Utils.matToBitmap(mMatToProcess, mReturnBmp, true);
+        //Utils.matToBitmap(mMatToProcess, mReturnBmp, true);
+        mReturnBmp = mStaffInfo.getStablePathsAsBmp();
         return mReturnBmp; 
     }
 

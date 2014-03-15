@@ -20,10 +20,9 @@ public class MusicStaffInfo {
     private int[] mHorizontalProjHist;
     
     private List<int[]> mStablePaths;
-    int[] mBestTmpPath;
-    float mTmpShortestCost;
-    int[] mTmpPath;
+    float[] mCostList;
 
+    
     private int mStaffLineThickness;
     private int mStaffLineSpacing;
     private int mTotalStaffLines;
@@ -44,8 +43,7 @@ public class MusicStaffInfo {
         mStaffLineMap = new SparseIntArray();
     	mStablePaths = new ArrayList<int[]>();
 
-    	mBestTmpPath = new int[w];
-    	mTmpPath = new int[w];
+    	mCostList = new float[w*h];
     }
 	
     public int getStaffLineSize()
@@ -106,13 +104,18 @@ public class MusicStaffInfo {
     	findStablePaths();
     	
     	Bitmap bmp = Bitmap.createBitmap(mWidth, mHeight, Bitmap.Config.ARGB_8888);
-    	bmp.eraseColor(Color.WHITE);
+    	bmp.eraseColor(Color.LTGRAY);
+
     	for(int[] p : mStablePaths)
     	{
     		int x = 0;
+    		int r = (int) (256*Math.random());
+    		int g = (int) (256*Math.random());
+    		int b = (int) (256*Math.random());
+    		int color = Color.rgb(r, g, b);
     		for(int y : p)
     		{
-    			bmp.setPixel(x, y, Color.BLACK);
+    			bmp.setPixel(x, y, color);
     			++x;
     		}
     	}
@@ -174,60 +177,101 @@ public class MusicStaffInfo {
     }
     
     //this method assumes white is foreground/staff lines with an int val of -1 and black an int val of 0
-    private void shortestPath(float cost, int x, int y, int x_end)
+    private int[] shortestPath(int x, int xEnd, int y, boolean leftToRight)
     {
-    	float right = 1.0f + (int)mPixelBuffer[y*mWidth+x] + cost;
-		float up = 1.414f + (int)mPixelBuffer[(y-1)*mWidth+x] + cost;
-		float down = 1.414f + (int)mPixelBuffer[(y+1)*mWidth+x] + cost;
-
-		if(x+1 < x_end)
+    	int path[] = new int[mWidth];
+    	int xStart = x;
+    	int yStart = y;
+    	int dir = 1;
+    	if(!leftToRight)
+    		dir = -1;
+    	
+    	mCostList[y*mWidth+x] = 0.0f;
+    	
+		while(x+dir != xEnd)
 		{
-			if(right < mTmpShortestCost)
+			path[x] = y;
+			x+=dir;
+
+			int xDiff = Math.abs(x - xStart);
+			int yIndexMin = Math.max(0, yStart-xDiff);
+			int yIndexMax = Math.min(mHeight-1, yStart+xDiff);
+			int minCostY = 0;
+			int leftUpDownMin = 0;
+			float columnMinCost = Float.MAX_VALUE;
+			while(yIndexMin <= yIndexMax)
 			{
-				mTmpPath[x+1] = y;
-				shortestPath(right, x+1, y, x_end);
+				int curBufferIndex = yIndexMin*mWidth+x;
+				float pixelWeight =  mPixelBuffer[curBufferIndex];
+				
+				float costFromPrev = 1.0f + mCostList[yIndexMin*mWidth+(x-dir)] + pixelWeight;
+				if(costFromPrev < mCostList[curBufferIndex])
+				{
+					mCostList[curBufferIndex] = costFromPrev;
+					leftUpDownMin = yIndexMin;
+				}
+				if(yIndexMin > 0)
+				{
+					float costFromPrevUp = 1.414f + mCostList[(yIndexMin-1)*mWidth+(x-dir)] + pixelWeight;
+					if(costFromPrevUp < mCostList[curBufferIndex])
+					{
+						 mCostList[curBufferIndex] = costFromPrevUp;
+						 leftUpDownMin = (yIndexMin-1);
+					}
+				}
+				if(yIndexMin < mHeight-1)
+				{
+					float costFromPrevDown = 1.414f + mCostList[(yIndexMin+1)*mWidth+(x-dir)] + pixelWeight;
+					if(costFromPrevDown < mCostList[curBufferIndex])
+					{
+						 mCostList[curBufferIndex] = costFromPrevDown;
+						 leftUpDownMin = (yIndexMin+1);
+					}
+				}
+				
+				if( mCostList[curBufferIndex] < columnMinCost)
+				{
+					columnMinCost = mCostList[curBufferIndex];
+					minCostY = leftUpDownMin;
+				}
+				++yIndexMin;
 			}
-			if(y>1 && up < mTmpShortestCost)
-			{
-				mTmpPath[x+1] = y-1;
-				shortestPath(up, x+1, y-1, x_end);
-			}
-			if(y<mHeight-1 && down < mTmpShortestCost)
-			{
-				mTmpPath[x+1] = y+1;
-				shortestPath(down, x+1, y+1, x_end);
-			}
-		}
-		else
-		{
-			if(cost < mTmpShortestCost)
-			{
-				mTmpShortestCost = cost;
-				mBestTmpPath = Arrays.copyOf(mTmpPath, mWidth);
-			}
+			
+			y = minCostY;
+			
 		}
 
+		return path;
     }
     
     private void findStablePaths()
     { 
-    	float wCrop = 0.4f*mWidth;
-    	float hCrop = 0.3f*mHeight;
+    	float wCrop = 0.25f*mWidth;
     	int xStart = (int)wCrop;
     	int xEnd = (int)(mWidth - wCrop);
-    	int yStart = (int)hCrop;
-    	int yEnd = (int)(mHeight-hCrop);
-
-    	for(int row=yStart; row<yEnd; ++row)
+    	int[] tmpPath;
+    	List<int[]> potentialPaths = new ArrayList<int[]>();
+    	
+    	for(int row=10; row<mHeight-10; ++row)
     	{
-    		Arrays.fill(mBestTmpPath, 0);
-    		Arrays.fill(mTmpPath, 0);
-    		mTmpShortestCost = Float.MAX_VALUE;
-    		
-    		shortestPath(0.f, xStart, row, xEnd);
-    		mStablePaths.add(mBestTmpPath);
-    		
-    		System.out.println("row= "+row+ " shortest path = "+ mTmpShortestCost);
+    		Arrays.fill(mCostList, Float.MAX_VALUE);
+    		tmpPath = shortestPath(xStart, xEnd, row, true);
+    		potentialPaths.add(tmpPath);
+    	}
+    	System.out.println("done searching left to right");
+    	
+    	for(int row=10; row<mHeight-10; ++row)
+    	{
+    		Arrays.fill(mCostList, Float.MAX_VALUE);
+    		tmpPath = shortestPath(xEnd, xStart, row, false);
+    		for(int[] p : potentialPaths)
+    		{
+    			if(p[xStart] == tmpPath[xStart+2] && p[xEnd-2] == tmpPath[xEnd] )
+    			{
+    				mStablePaths.add(p);
+    				System.out.println("adding stable path");
+    			}
+    		}
     	}
     }
     
