@@ -8,9 +8,12 @@ import android.os.AsyncTask;
 import android.os.Environment;
 import android.util.Log;
 
+import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.Point;
+import org.opencv.core.Scalar;
+import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
 import org.opencv.android.Utils;
 import java.lang.Math;
@@ -21,6 +24,7 @@ public class ProcessTask extends AsyncTask<Double, Integer, Bitmap>
 	protected static final String TAG = "ProcessTask";
     
 	private Mat mMatToProcess;
+	private Mat mOriginalMat;
 	private byte mPixels[];
 	
     private int mImageWidth;
@@ -44,18 +48,20 @@ public class ProcessTask extends AsyncTask<Double, Integer, Bitmap>
     protected Bitmap doInBackground(Double... doubles) 
     {
     	Log.i(TAG, "doInBackground");
-        final double thetaRads = doubles[0].doubleValue();
-     
+       // final double thetaRads = doubles[0].doubleValue();
+        
+        //rotateImage(thetaRads);
         preProcessMat();
-        rotateImage(thetaRads);
     	mMatToProcess.get(0, 0, mPixels);
     	
         mStaffInfo = new MusicStaffInfo(mPixels, mImageWidth, mImageHeight);
-        //mStaffInfo.processImage();
-        //removeStaffLines();
+        mStaffInfo.processImage();
+        mStaffInfo.removeStaffLines();
+       // removeStaffLines();
         
-        //Utils.matToBitmap(mMatToProcess, mReturnBmp, true);
-        mReturnBmp = mStaffInfo.getStablePathsAsBmp();
+       // Utils.matToBitmap(mMatToProcess, mReturnBmp, true);
+       // mReturnBmp = mStaffInfo.getStablePathsAsBmp();
+        mReturnBmp = mStaffInfo.getProcessedBmp();
         return mReturnBmp; 
     }
 
@@ -98,6 +104,7 @@ public class ProcessTask extends AsyncTask<Double, Integer, Bitmap>
     	mImageWidth = bmpToProcess.getWidth();
     	mImageHeight = bmpToProcess.getHeight();
     	mMatToProcess = new Mat(mImageHeight, mImageWidth, CvType.CV_8UC4);
+        Utils.bitmapToMat(mReturnBmp, mMatToProcess, true);	//is created as 'CV_8UC4' type, it keeps the image in RGBA format.
     	mPixels = new byte[(int) (mMatToProcess.total() * mMatToProcess.channels())];
     }
     
@@ -112,10 +119,20 @@ public class ProcessTask extends AsyncTask<Double, Integer, Bitmap>
     private void preProcessMat()
     {
     	Log.i(TAG, "preProcess");
-        Utils.bitmapToMat(mReturnBmp, mMatToProcess, true);	//is created as 'CV_8UC4' type, it keeps the image in RGBA format.
     	Imgproc.cvtColor(mMatToProcess, mMatToProcess, Imgproc.COLOR_RGBA2GRAY);
-    	Imgproc.threshold(mMatToProcess, mMatToProcess, 100, 255.0, Imgproc.ADAPTIVE_THRESH_MEAN_C | Imgproc.THRESH_OTSU | Imgproc.THRESH_BINARY_INV );
+
+    	Mat sobel = new Mat();
+    	Imgproc.Sobel(mMatToProcess, sobel, -1, 0, 1);
+   		
+   		Core.bitwise_not(mMatToProcess, mMatToProcess);
+   		Core.bitwise_or(mMatToProcess, sobel, mMatToProcess);
+   		
+    	Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 3));
+   		Imgproc.morphologyEx(mMatToProcess, mMatToProcess, Imgproc.MORPH_DILATE, kernel);
+   		
+    	Imgproc.threshold(mMatToProcess, mMatToProcess, -1, 255, Imgproc.THRESH_OTSU);
     }
+
     
     private void removeStaffLines()
     {

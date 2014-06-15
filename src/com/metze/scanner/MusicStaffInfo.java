@@ -20,13 +20,15 @@ public class MusicStaffInfo {
     private int[] mHorizontalProjHist;
     
     private List<int[]> mStablePaths;
-    float[] mCostList;
-
+    private float[] mCostList;
+    private int pathLeftBound;
+    private int pathRightBound;
     
     private int mStaffLineThickness;
     private int mStaffLineSpacing;
     private int mTotalStaffLines;
     private int mNumStaffs;
+
     
     public MusicStaffInfo(byte[] pixels, int w, int h)
     {
@@ -44,6 +46,8 @@ public class MusicStaffInfo {
     	mStablePaths = new ArrayList<int[]>();
 
     	mCostList = new float[w*h];
+    	pathLeftBound = w/8;
+    	pathRightBound = w - pathLeftBound;
     }
 	
     public int getStaffLineSize()
@@ -71,6 +75,8 @@ public class MusicStaffInfo {
     	calcHorizontalProjHist();
     	findStaffLinePositions();
     	calcStaffSpacingAndThickness();
+
+    	findStablePaths(pathLeftBound, pathRightBound);
     }
     
     public boolean isStaffLineAt(int y)
@@ -99,28 +105,38 @@ public class MusicStaffInfo {
     	return bmpHist;
     }
     
-    public Bitmap getStablePathsAsBmp()
-    {
-    	findStablePaths();
-    	
-    	Bitmap bmp = Bitmap.createBitmap(mWidth, mHeight, Bitmap.Config.ARGB_8888);
-    	bmp.eraseColor(Color.LTGRAY);
-
+    public Bitmap overlayStaffLines(Bitmap bmp)
+    {    	
     	for(int[] p : mStablePaths)
     	{
-    		int x = 0;
     		int r = (int) (256*Math.random());
     		int g = (int) (256*Math.random());
     		int b = (int) (256*Math.random());
     		int color = Color.rgb(r, g, b);
-    		for(int y : p)
+    		for(int x = pathLeftBound; x<=pathRightBound; ++x)
     		{
-    			bmp.setPixel(x, y, color);
-    			++x;
+    			bmp.setPixel(x, p[x], color);
     		}
     	}
     	
     	return bmp;
+    }
+    
+    public Bitmap getProcessedBmp()
+    {
+    	Bitmap bmp = Bitmap.createBitmap(mWidth, mHeight, Bitmap.Config.ARGB_8888);
+    	for(int y=0; y<mHeight; ++y)
+    	{
+    		for(int x=0; x<mWidth; ++x)
+    		{
+    			int c = Color.BLACK;
+    			if(mPixelBuffer[y*mWidth+x] == -1)
+    				c = Color.WHITE;
+    			bmp.setPixel(x, y, c);
+    		}
+    	}
+    	
+    	return overlayStaffLines(bmp);
     }
     
     //creates a histogram of the # of white pixels in each row of the image
@@ -179,98 +195,152 @@ public class MusicStaffInfo {
     //this method assumes white is foreground/staff lines with an int val of -1 and black an int val of 0
     private int[] shortestPath(int x, int xEnd, int y, boolean leftToRight)
     {
-    	int path[] = new int[mWidth];
     	int xStart = x;
     	int yStart = y;
+    	final float k = 5.f;
+    	
     	int dir = 1;
     	if(!leftToRight)
     		dir = -1;
     	
     	mCostList[y*mWidth+x] = 0.0f;
     	
-		while(x+dir != xEnd)
+		while(x != xEnd)
 		{
-			path[x] = y;
 			x+=dir;
 
+			//only search update/search y positions as far as we've moved x
+			// this is because each move in x, we only allow the staff line to move up or down a maximum of 1 pixel
 			int xDiff = Math.abs(x - xStart);
 			int yIndexMin = Math.max(0, yStart-xDiff);
 			int yIndexMax = Math.min(mHeight-1, yStart+xDiff);
-			int minCostY = 0;
-			int leftUpDownMin = 0;
-			float columnMinCost = Float.MAX_VALUE;
+
 			while(yIndexMin <= yIndexMax)
 			{
 				int curBufferIndex = yIndexMin*mWidth+x;
-				float pixelWeight =  mPixelBuffer[curBufferIndex];
+				float pixelWeight = k*(mPixelBuffer[curBufferIndex] + 1.f);	//bigger k value = less likely to choose background pixel
 				
 				float costFromPrev = 1.0f + mCostList[yIndexMin*mWidth+(x-dir)] + pixelWeight;
 				if(costFromPrev < mCostList[curBufferIndex])
-				{
 					mCostList[curBufferIndex] = costFromPrev;
-					leftUpDownMin = yIndexMin;
-				}
+
 				if(yIndexMin > 0)
 				{
 					float costFromPrevUp = 1.414f + mCostList[(yIndexMin-1)*mWidth+(x-dir)] + pixelWeight;
 					if(costFromPrevUp < mCostList[curBufferIndex])
-					{
 						 mCostList[curBufferIndex] = costFromPrevUp;
-						 leftUpDownMin = (yIndexMin-1);
-					}
 				}
 				if(yIndexMin < mHeight-1)
 				{
 					float costFromPrevDown = 1.414f + mCostList[(yIndexMin+1)*mWidth+(x-dir)] + pixelWeight;
 					if(costFromPrevDown < mCostList[curBufferIndex])
-					{
 						 mCostList[curBufferIndex] = costFromPrevDown;
-						 leftUpDownMin = (yIndexMin+1);
-					}
 				}
-				
-				if( mCostList[curBufferIndex] < columnMinCost)
-				{
-					columnMinCost = mCostList[curBufferIndex];
-					minCostY = leftUpDownMin;
-				}
+
 				++yIndexMin;
 			}
+		}
+    	
+		//fill out the actual path based on lowest cost at each x
+		int path[] = new int[mWidth];
+		float bestCost = Float.MAX_VALUE;
+		int bestY = y;
+		
+		x = xStart;
+		y = yStart;
+		while(x != xEnd)
+		{
+			path[x] = y;
+			x+=dir;
 			
-			y = minCostY;
-			
+			bestCost = mCostList[y*mWidth+x];
+			bestY = y;
+			 
+			if(y > 0)
+			{
+				if(mCostList[(y-1)*mWidth+x] < bestCost)
+				{
+					bestCost = mCostList[(y-1)*mWidth+x];
+					bestY = y-1;
+				}
+			}
+			if(y < mHeight-1)
+			{
+				if(mCostList[(y+1)*mWidth+x] < bestCost)
+				{
+					bestCost = mCostList[(y+1)*mWidth+x];
+					bestY = y+1;
+				}
+			}
+			 
+			y = bestY;
 		}
 
 		return path;
     }
     
-    private void findStablePaths()
+    private void findStablePaths(int xStart, int xEnd)
     { 
-    	float wCrop = 0.25f*mWidth;
-    	int xStart = (int)wCrop;
-    	int xEnd = (int)(mWidth - wCrop);
-    	int[] tmpPath;
-    	List<int[]> potentialPaths = new ArrayList<int[]>();
-    	
-    	for(int row=10; row<mHeight-10; ++row)
+    	int[] leftToRightPath = new int[mWidth];
+    	Arrays.fill(leftToRightPath, 0);
+    	int[] rightToLeftPath = new int[mWidth];
+    	Arrays.fill(rightToLeftPath, 0);
+
+    	int rightEndY = 0;
+    	for(int row=5; row<mHeight-5; ++row)		//find the shortest path for each row, starting on the left side
     	{
-    		Arrays.fill(mCostList, Float.MAX_VALUE);
-    		tmpPath = shortestPath(xStart, xEnd, row, true);
-    		potentialPaths.add(tmpPath);
-    	}
-    	System.out.println("done searching left to right");
-    	
-    	for(int row=10; row<mHeight-10; ++row)
-    	{
-    		Arrays.fill(mCostList, Float.MAX_VALUE);
-    		tmpPath = shortestPath(xEnd, xStart, row, false);
-    		for(int[] p : potentialPaths)
+    		Arrays.fill(mCostList, Float.MAX_VALUE-5.f);
+    		leftToRightPath = shortestPath(xStart, xEnd, row, true);
+    		if(leftToRightPath[xEnd-1] != rightEndY)	//only search backwards if the endpoint is at a different y value than before
     		{
-    			if(p[xStart] == tmpPath[xStart+2] && p[xEnd-2] == tmpPath[xEnd] )
+    			rightEndY = leftToRightPath[xEnd-1];
+    			Arrays.fill(mCostList, Float.MAX_VALUE-5.f);
+    			rightToLeftPath = shortestPath(xEnd, xStart, rightEndY, false);
+    		}
+
+    		//if the endpoints are the same from each search, the path is stable
+			if(rightToLeftPath[xStart+1] == leftToRightPath[xStart+1] && rightToLeftPath[xEnd-1] == leftToRightPath[xEnd-1])	
+			{
+				mStablePaths.add(leftToRightPath);
+				System.out.println("adding stable path");
+			}
+    	}//end for row
+    }
+    
+    public void removeStaffLines()
+    {
+    	if(mStablePaths.size() < 5)
+    	{
+    		System.out.println("Error: less than 5 staff lines found");
+    		return;
+    	}
+    	
+    	for(int[] path : mStablePaths)
+    	{
+    		for(int x=pathLeftBound; x<pathRightBound; ++x)
+    		{
+    			int y = path[x];
+    			int yTop = y;
+    			int yBot = y;
+    			while(yTop >=0 && mPixelBuffer[yTop*mWidth+x] == -1)
     			{
-    				mStablePaths.add(p);
-    				System.out.println("adding stable path");
+    				yTop--;
     			}
+    			while(yBot < mHeight && mPixelBuffer[yBot*mWidth+x] == -1)
+    			{
+    				yBot++;
+    			}
+    			
+    			int lineWidth = yBot-yTop;
+    			if(lineWidth <= mStaffLineThickness+0.1*mStaffLineThickness)
+    			{
+    				while(yBot >= yTop)
+    				{
+    					mPixelBuffer[yTop*mWidth+x] = 0;
+    					yTop++;
+    				}
+    			}
+    				
     		}
     	}
     }
@@ -311,5 +381,6 @@ public class MusicStaffInfo {
         
         mNumStaffs = (int) (mTotalStaffLines/5.0);
     }
+
     
 }

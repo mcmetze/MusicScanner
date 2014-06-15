@@ -9,6 +9,7 @@ import org.opencv.android.OpenCVLoader;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.BitmapFactory.Options;
@@ -78,6 +79,17 @@ public class MainActivity extends Activity
         startActivityForResult(adjustImageIntent, ADJUST_PIC_CODE);
     }
     
+    private void cropAndProcess(Bitmap bmp, String path)
+    {
+    	Intent adjustImageIntent = new Intent(this, AdjustActivity.class);
+    	if(bmp != null)
+    		adjustImageIntent.putExtra("picture", bmp);
+    	if(path != null)
+    		adjustImageIntent.putExtra("path", path);
+    	
+        startActivityForResult(adjustImageIntent, ADJUST_PIC_CODE);
+    }
+    
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         switch(requestCode)
         {
@@ -97,35 +109,37 @@ public class MainActivity extends Activity
 	            		//	return lots of data in the intent? what data?
             		}
             		break;
-            
             case CHOOSE_PIC_CODE:
             	if(resultCode == RESULT_OK)
             	{  
-                    Uri selectedImage = data.getData();
-					try 
-					{
-						InputStream imageStream = getContentResolver().openInputStream(selectedImage);
-						Bitmap selectedBmp = BitmapFactory.decodeStream(imageStream);
+            		Uri selectedImageUri = data.getData();
 
-						if(selectedBmp.getAllocationByteCount() > 900000)
-						{
-							final float densityMultiplier = this.getResources().getDisplayMetrics().density;        
-	
-							int h= (int) (0.25*selectedBmp.getHeight()*densityMultiplier);
-							int w= (int) (h * selectedBmp.getWidth()/((double) selectedBmp.getHeight()));
-	
-							selectedBmp = Bitmap.createScaledBitmap(selectedBmp, w, h, true);
-						}	
-						
-						adjustPicture(selectedBmp);
-					} 
-					catch (FileNotFoundException e) 
-					{
-						e.printStackTrace();
-					}
+                    //OI FILE Manager
+                    String filemanagerstring = selectedImageUri.getPath();
+                    //MEDIA GALLERY
+                    String selectedImagePath = getRealPathFromURI(selectedImageUri);
+
+                    if(selectedImagePath!=null)
+                    	cropAndProcess(null, selectedImagePath);
+                    else
+                    	cropAndProcess(null, filemanagerstring);
                     
                 }
             	break;
         }
+    }
+    
+    public String getRealPathFromURI(Uri contentUri) 
+    {
+        String res = null;
+        String[] proj = { MediaStore.Images.Media.DATA };
+        Cursor cursor = getContentResolver().query(contentUri, proj, null, null, null);
+        if(cursor.moveToFirst())
+        {
+           int column_index = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
+           res = cursor.getString(column_index);
+        }
+        cursor.close();
+        return res;
     }
 }
