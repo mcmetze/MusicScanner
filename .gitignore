@@ -9,12 +9,16 @@ bin/
 tmp/
 *.tmp
 *.bak
+*.back
 *.swp
 *~.nib
 local.properties
 .classpath
 .settings/
 .loadpath
+*.png
+*.PNG
+*.jpg
 
 # External tool builders
 .externalToolBuilders/
